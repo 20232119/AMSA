@@ -1,0 +1,78 @@
+/* src/index.css */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Greens */
+  --green-50:  #EEF5F1;
+  --green-100: #C8DFCF;
+  --green-200: #A0C8AC;
+  --green-700: #1E8449;
+  --green-800: #1A6B3C;
+  --green-900: #1A5276;
+
+  /* Stone / neutral */
+  --stone-50:  #F8FAF9;
+  --stone-100: #F0F4F2;
+  --stone-200: #DCE6E1;
+  --stone-300: #BDD0C5;
+  --stone-400: #8A9E93;
+  --stone-500: #6B7C74;
+  --stone-700: #3D5247;
+  --stone-900: #1C2B25;
+
+  /* Accent */
+  --gold-500:  #D4A017;
+  --blue-700:  #1A5276;
+
+  /* Semantic */
+  --error:     #C0392B;
+  --error-bg:  #FADBD8;
+  --warning:   #D68910;
+  --warning-bg:#FEF9E7;
+  --success:   #1E8449;
+  --success-bg:#D5F5E3;
+
+  --white: #FFFFFF;
+
+  /* Typography */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'Inter', -apple-system, sans-serif;
+  --font-mono:    'SFMono-Regular', Consolas, monospace;
+
+  /* Radius */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+
+  /* Sidebar */
+  --sidebar-w:  200px;
+  --topbar-h:   60px;
+}
+
+html, body { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  background:  var(--stone-100);
+  color:       var(--stone-900);
+  font-size:   15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { height: 100%; }
+
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 99px; }
+
+@keyframes fadeIn   { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideIn  { from { opacity:0; transform:translateX(-12px); } to { opacity:1; transform:translateX(0); } }
+@keyframes spinRing { to   { transform: rotate(360deg); } }
+@keyframes pulse    { 0%,100% { opacity:1; } 50% { opacity:.4; } }

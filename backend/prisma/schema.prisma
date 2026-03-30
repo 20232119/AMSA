@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  users       User[]
+  @@map("roles")
+}
+
+model Department {
+  id    Int     @id @default(autoincrement())
+  name  String  @unique
+  users User[]
+  @@map("departments")
+}
+
+model Career {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  code     String    @unique
+  users    User[]
+  courses  Course[]
+  @@map("careers")
+}
+
+model User {
+  id                   String    @id @default(uuid())
+  roleId               Int       @map("role_id")
+  institutionalId      String    @unique @map("institutional_id")
+  firstName            String    @map("first_name")
+  lastName             String    @map("last_name")
+  email                String    @unique
+  phone                String?
+  passwordHash         String    @map("password_hash")
+  careerId             Int?      @map("career_id")
+  departmentId         Int?      @map("department_id")
+  isActive             Boolean   @default(true) @map("is_active")
+  mustChangePassword   Boolean   @default(false) @map("must_change_password")
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime? @map("locked_until")
+  lastLoginAt          DateTime? @map("last_login_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  role                 Role                @relation(fields: [roleId], references: [id])
+  career               Career?             @relation(fields: [careerId], references: [id])
+  department           Department?         @relation(fields: [departmentId], references: [id])
+  webauthnCredentials  WebAuthnCredential[]
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  taughtSections       Section[]           @relation("ProfessorSections")
+  enrollments          Enrollment[]
+  grades               Grade[]
+  gradedGrades         Grade[]             @relation("GradedBy")
+  validatedGrades      Grade[]             @relation("ValidatedBy")
+
+  @@map("users")
+}
+
+model WebAuthnCredential {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  credentialId  String    @unique @map("credential_id")
+  publicKey     Bytes     @map("public_key")
+  signCount     Int       @default(0) @map("sign_count")
+  aaguid        String?
+  transport     String[]
+  deviceType    String?   @map("device_type")
+  friendlyName  String?   @map("friendly_name")
+  isActive      Boolean   @default(true) @map("is_active")
+  lastUsedAt    DateTime? @map("last_used_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user          User      @relation(fields: [userId], references: [id])
+  @@map("webauthn_credentials")
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  tokenHash   String    @map("token_hash")
+  deviceInfo  String?   @map("device_info")
+  ipAddress   String?   @map("ip_address")
+  expiresAt   DateTime  @map("expires_at")
+  revoked     Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String?
+  entityId  String?  @map("entity_id")
+  detail    String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User?    @relation(fields: [userId], references: [id])
+  @@map("audit_logs")
+}
+
+model Period {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  startDate DateTime  @map("start_date")
+  endDate   DateTime  @map("end_date")
+  isActive  Boolean   @default(true) @map("is_active")
+  sections  Section[]
+  @@map("periods")
+}
+
+model Course {
+  id       Int       @id @default(autoincrement())
+  code     String    @unique
+  name     String
+  credits  Int       @default(3)
+  careerId Int?      @map("career_id")
+  career   Career?   @relation(fields: [careerId], references: [id])
+  sections Section[]
+  @@map("courses")
+}
+
+model Section {
+  id           String       @id @default(uuid())
+  courseId     Int          @map("course_id")
+  professorId  String       @map("professor_id")
+  periodId     Int          @map("period_id")
+  sectionNo    Int          @default(1) @map("section_no")
+  schedule           String?
+  startDate          DateTime? @map("start_date")
+  allowManualPresent Boolean   @default(false) @map("allow_manual_present")
+  isActive           Boolean   @default(true)  @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  course       Course       @relation(fields: [courseId], references: [id])
+  professor    User         @relation("ProfessorSections", fields: [professorId], references: [id])
+  period       Period       @relation(fields: [periodId], references: [id])
+  enrollments  Enrollment[]
+  classSessions ClassSession[]
+  grades       Grade[]
+
+  @@unique([courseId, periodId, sectionNo])
+  @@map("sections")
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  studentId String   @map("student_id")
+  sectionId String   @map("section_id")
+  status    String   @default("activo")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  student   User     @relation(fields: [studentId], references: [id])
+  section   Section  @relation(fields: [sectionId], references: [id])
+  attendance Attendance[]
+
+  @@unique([studentId, sectionId])
+  @@map("enrollments")
+}
+
+model ClassSession {
+  id          String     @id @default(uuid())
+  sectionId   String     @map("section_id")
+  sessionNo   Int        @default(1) @map("session_no")
+  date        DateTime   @default(now())
+  topic       String?
+  status      String     @default("open")
+  openedAt    DateTime   @default(now()) @map("opened_at")
+  closedAt    DateTime?  @map("closed_at")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  section     Section    @relation(fields: [sectionId], references: [id])
+  attendance  Attendance[]
+  @@map("class_sessions")
+}
+
+model Attendance {
+  id           String       @id @default(uuid())
+  enrollmentId String       @map("enrollment_id")
+  sessionId    String       @map("session_id")
+  status       String       @default("absent")
+  markedAt     DateTime?    @map("marked_at")
+  method       String       @default("biometric")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  enrollment   Enrollment   @relation(fields: [enrollmentId], references: [id])
+  session      ClassSession @relation(fields: [sessionId], references: [id])
+
+  @@unique([enrollmentId, sessionId])
+  @@map("attendance")
+}
+
+model Grade {
+  id           String    @id @default(uuid())
+  sectionId    String    @map("section_id")
+  studentId    String    @map("student_id")
+  parcial1     Float?
+  parcial2     Float?
+  tareas       Float?
+  examen       Float?
+  asistencia   Float?
+  finalGrade   Float?    @map("final_grade")
+  status       String    @default("borrador")
+  gradedById   String?   @map("graded_by_id")
+  validatedById String?  @map("validated_by_id")
+  validatedAt   DateTime? @map("validated_at")
+  publishedAt   DateTime? @map("published_at")
+  rejectedAt    DateTime? @map("rejected_at")
+  rejectedById  String?   @map("rejected_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  section      Section   @relation(fields: [sectionId], references: [id])
+  student      User      @relation(fields: [studentId], references: [id])
+  gradedBy     User?     @relation("GradedBy",    fields: [gradedById],    references: [id])
+  validatedBy  User?     @relation("ValidatedBy", fields: [validatedById], references: [id])
+
+  @@unique([sectionId, studentId])
+  @@map("grades")
+}
