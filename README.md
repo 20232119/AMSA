@@ -157,20 +157,36 @@ Profesor cierra sesión (ausentes quedan como ausentes)
 ## Mejoras 
  ```
  
- 1. Lista de asistencia necesita mas opciones, like: presente, ausente, excusado, etc.
- 2. Mejoras: tareas pendientes por materia y cuando se acceda, va a presentar las asignaciones pendientes que se         tienen   y yo hacerlas, se auto completan.
- 3. Customize el dashboard
- 4. UI/UX
+ ## 🚀 Mejoras pendientes
 
+### 📚 Funcionalidades
+- Tareas pendientes por materia con autocompletado al realizarlas.
+- Personalización del dashboard según el usuario.
+- Filtrado de carreras, materias y profesores según el ciclo académico.
+- Guardado automático de datos al salir de una pantalla.
 
-Filtrar las carreras y de ahi las materias y profesores segun el ciclo
-arreglar codigo
-dividir los styles de la logica
-validar campos, que no se pongan letras o numeros donde no deberian and que no 
-se pase del limite, por ejemplo, que si es 25, que sea 25 y no 25.1
-que se guarde cuando salgo de la pantalla y este ahi cuando regreso
-quiero que cuando yo ponga la biometria en una clase de sesion, se me marque como presente
-sessions cant be fixed
-no tiene sentidp que se ponga asistencia a un estudiante que no este con biometria
-No poder escribir si el estudiante es retirado
- ```
+### ⚙️ Lógica académica
+- Integración de asistencia automática mediante biometría.
+- No permitir asistencia sin registro biométrico válido.
+- Permitir edición manual de asistencia solo en caso de fallos del sistema biométrico.
+- Detectar inconsistencias entre asistencia manual del profesor y registro biométrico.
+- Bloquear edición de datos para estudiantes retirados.
+- Corrección del manejo de sesiones.
+
+### 🧪 Validaciones
+- Validar tipos de datos en los campos (números, textos, etc.).
+- Respetar límites de calificaciones (ej: máximo 25, no permitir 25.1).
+
+### 🧱 Mejora técnica
+- Refactorización y limpieza del código.
+- Separación de estilos y lógica.
+- Mejora general de la estructura del proyecto.
+
+### 🎨 UI/UX
+- Mejoras en la interfaz para una experiencia más clara e intuitiva. 
+- Mejoras en la presentación de los datos, como poner la descarga de reportes en reportes.
+- Mejoras en la navegación y organización de la interfaz, y los colores.
+- Poner logo.
+
+### 📝 Documentación
+- Documentación de cómo instalar y configurar el proyecto.'
