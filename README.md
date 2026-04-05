@@ -160,10 +160,8 @@ Profesor cierra sesión (ausentes quedan como ausentes)
  ## 🚀 Mejoras pendientes
 
 ### 📚 Funcionalidades
-- Tareas pendientes por materia con autocompletado al realizarlas.
 - Personalización del dashboard según el usuario.
 - Filtrado de carreras, materias y profesores según el ciclo académico.
-- Guardado automático de datos al salir de una pantalla.
 
 ### ⚙️ Lógica académica
 - Integración de asistencia automática mediante biometría.
@@ -186,7 +184,6 @@ Profesor cierra sesión (ausentes quedan como ausentes)
 - Mejoras en la interfaz para una experiencia más clara e intuitiva. 
 - Mejoras en la presentación de los datos, como poner la descarga de reportes en reportes.
 - Mejoras en la navegación y organización de la interfaz, y los colores.
-- Poner logo.
 
 ### 📝 Documentación
 - Documentación de cómo instalar y configurar el proyecto.'

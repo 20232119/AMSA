@@ -52,16 +52,16 @@ export default function CalificacionesEstudiante() {
                     { label:'Examen',   value: g.examen,   weight:'30%' },
                   ].map(({ label, value, weight }) => (
                     <div key={label} style={{ background:'var(--stone-50)', borderRadius:'var(--radius-md)', padding:'12px', textAlign:'center', border:'1px solid var(--stone-200)' }}>
-                      <div style={{ fontSize:11, color:'var(--stone-400)', marginBottom:4 }}>{label} <span style={{ color:'var(--stone-300)' }}>({weight})</span></div>
-                      <div style={{ fontSize:20, fontWeight:700, color:'var(--stone-900)' }}>{value?.toFixed(1) ?? '—'}</div>
+                      <div style={{ fontSize:11, color:'var(--stone-400)', marginBottom:4 }}>
+                        {label} <span style={{ color:'var(--stone-300)' }}>({weight})</span>
+                      </div>
+                      <div style={{ fontSize:20, fontWeight:700, color:'var(--stone-900)' }}>
+                        {value?.toFixed(1) ?? '—'}
+                      </div>
                     </div>
                   ))}
                 </div>
 
-                {/* Formula */}
-                <div style={{ marginTop:14, padding:'10px 14px', background:'var(--stone-50)', borderRadius:'var(--radius-md)', fontSize:12.5, color:'var(--stone-500)', fontFamily:'var(--font-mono)' }}>
-                  Nota final = {g.parcial1?.toFixed(1) ?? '?'} × 0.25 + {g.parcial2?.toFixed(1) ?? '?'} × 0.25 + {g.tareas?.toFixed(1) ?? '?'} × 0.20 + {g.examen?.toFixed(1) ?? '?'} × 0.30 = <strong style={{ color: pass ? 'var(--green-700)' : 'var(--error)' }}>{final?.toFixed(2) ?? '—'}</strong>
-                </div>
               </Card>
             )
           })}
