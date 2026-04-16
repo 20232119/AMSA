@@ -174,76 +174,92 @@ function buildGradesSheet(wb, section, gradeRows) {
   sumRow.height=22
 }
 
-// GET /api/export/section/:sectionId?type=attendance|grades|all
-router.get('/section/:sectionId', async (req, res, next) => {
+// ─── GET /api/reports/grades?periodId=&sectionId= ─────────────────────────────
+// Consolidated academic performance report
+router.get('/grades', async (req, res, next) => {
   try {
-    const { sectionId } = req.params
-    const type = req.query.type ?? 'all'
+    const { periodId, sectionId } = req.query
 
-    const section = await prisma.section.findUnique({
-      where: { id: sectionId },
-      include: { course:true, professor:true, period:true },
+    const where = { isActive: true }
+    if (periodId) where.periodId = parseInt(periodId)
+    if (sectionId) where.id = sectionId
+
+    const sections = await prisma.section.findMany({
+      where,
+      include: {
+        course: true,
+        professor: { select: { firstName: true, lastName: true } },
+        period: true,
+        enrollments: {
+          where: { status: 'activo' },
+          include: {
+            student: {
+              select: {
+                id: true,
+                institutionalId: true,
+                firstName: true,
+                lastName: true,
+                career: { select: { name: true } },
+              },
+            },
+          },
+        },
+        grades: {
+          where: { status: { in: ['validado', 'publicado'] } },
+        },
+      },
+      orderBy: { course: { name: 'asc' } },
     })
-    if (!section) return res.status(404).json({ error: 'Sección no encontrada' })
-    if (req.user.role === 'profesor' && section.professorId !== req.user.sub)
-      return res.status(403).json({ error: 'Sin permisos' })
 
-    const sec = {
-      id:           section.id,
-      code:         `${section.course.code}-0${section.sectionNo}`,
-      name:         section.course.name,
-      professorName:`${section.professor.firstName} ${section.professor.lastName}`,
-      periodName:   section.period.name,
-    }
+    const result = sections.map(sec => {
+      const gradeMap = Object.fromEntries(sec.grades.map(g => [g.studentId, g]))
+      const totalEnrolled = sec.enrollments.length
 
-    const wb      = new ExcelJS.Workbook()
-    wb.creator    = 'UAFAM — Sistema Biométrico'
-    wb.created    = new Date()
-
-    if (type === 'attendance' || type === 'all') {
-      const sessions = await prisma.classSession.findMany({
-        where: { sectionId }, orderBy: { sessionNo:'asc' },
-        include: { attendance: true },
+      const rows = sec.enrollments.map(enr => {
+        const g = gradeMap[enr.student.id] ?? null
+        return {
+          institutionalId: enr.student.institutionalId,
+          name: `${enr.student.firstName} ${enr.student.lastName}`,
+          career: enr.student.career?.name ?? '—',
+          parcial1: g?.parcial1 ?? null,
+          parcial2: g?.parcial2 ?? null,
+          tareas: g?.tareas ?? null,
+          examen: g?.examen ?? null,
+          asistencia: g?.asistencia ?? null,
+          finalGrade: g?.finalGrade ?? null,
+          status: g?.status ?? null,
+          passed: g?.finalGrade != null ? g.finalGrade >= 70 : false,
+        }
       })
-      const enrollments = await prisma.enrollment.findMany({
-        where: { sectionId, status:'activo' },
-        include: { student: { include: { career:true } } },
-        orderBy: { student: { lastName:'asc' } },
-      })
-        const enrData = enrollments.map(e => ({
-        enrollmentId:    e.id,
-        institutionalId: e.student.institutionalId,
-        name:            `${e.student.firstName} ${e.student.lastName}`,
-        career:          e.student.career?.name,
-      }))
-      buildAttendanceSheet(wb, sec, sessions, enrData)
-    }
 
-    if (type === 'grades' || type === 'all') {
-      const grades = await prisma.grade.findMany({
-        where: { sectionId, status:{ in:['validado','publicado'] } },
-        include: { student: { include: { career:true } } },
-        orderBy: { student: { lastName:'asc' } },
-      })
-      const gradeData = grades.map(g => ({
-        institutionalId: g.student.institutionalId,
-        name:    `${g.student.firstName} ${g.student.lastName}`,
-        career:  g.student.career?.name,
-        parcial1: g.parcial1, parcial2: g.parcial2, tareas: g.tareas, examen: g.examen, asistencia: g.asistencia,
-        status:  g.status,
-      }))
-      buildGradesSheet(wb, sec, gradeData)
-    }
+      const validGrades = rows.filter(r => r.finalGrade != null)
+      const approved = validGrades.filter(r => r.finalGrade >= 70).length
+      const failed = validGrades.filter(r => r.finalGrade < 70).length
+      const avgFinal = validGrades.length
+        ? +(validGrades.reduce((s, r) => s + r.finalGrade, 0) / validGrades.length).toFixed(2)
+        : null
 
-    const safe     = sec.code.replace(/[^a-zA-Z0-9-]/g,'_')
-    const today    = new Date().toISOString().slice(0,10)
-    const filename = `UAFAM_${safe}_${type}_${today}.xlsx`
+      return {
+        sectionId: sec.id,
+        code: `${sec.course.code}-0${sec.sectionNo}`,
+        courseName: sec.course.name,
+        professor: `${sec.professor.firstName} ${sec.professor.lastName}`,
+        period: sec.period.name,
+        totalEnrolled,
+        graded: validGrades.length,
+        approved,
+        failed,
+        pending: totalEnrolled - validGrades.length,
+        passRate: validGrades.length ? Math.round((approved / validGrades.length) * 100) : 0,
+        avgFinal,
+        grades: rows,
+      }
+    })
 
-    res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition',`attachment; filename="${filename}"`)
-    await wb.xlsx.write(res)
-    res.end()
-  } catch (e) { next(e) }
+    res.json(result)
+  } catch (e) {
+    next(e)
+  }
 })
 
 export default router

@@ -1,16 +1,24 @@
-// src/pages/AsistenciaProfesor.jsx
 import { useState, useEffect } from 'react'
-import AppShell   from '../components/AppShell.jsx'
-import { Card, Button, PageSpinner, EmptyState } from '../components/ui.jsx'
+import Swal from 'sweetalert2'
+import AppShell from '../components/AppShell.jsx'
+import { Card, PageSpinner, EmptyState, Badge } from '../components/ui.jsx'
 import { navForRole } from '../lib/navItems.js'
-import { api }        from '../lib/api.js'
+import { api } from '../lib/api.js'
 
 const STATUS_CFG = {
-  present: { label:'Presente', color:'#1E8449', bg:'#D5F5E3', points:2 },
-  excuse:  { label:'Excusa',   color:'#1A5276', bg:'#D6EAF8', points:2 },
-  late:    { label:'Tardanza', color:'#B7770D', bg:'#FEF9E7', points:1 },
-  absent:  { label:'Ausente',  color:'#922B21', bg:'#FADBD8', points:0 },
+  present: { label: 'Presente', color: '#1E8449', bg: '#D5F5E3', points: 2 },
+  excuse:  { label: 'Excusa',   color: '#1A5276', bg: '#D6EAF8', points: 2 },
+  late:    { label: 'Tardanza', color: '#B7770D', bg: '#FEF9E7', points: 1 },
+  absent:  { label: 'Ausente',  color: '#922B21', bg: '#FADBD8', points: 0 },
 }
+
+const Toast = Swal.mixin({
+  toast: true,
+  position: 'top-end',
+  showConfirmButton: false,
+  timer: 2500,
+  timerProgressBar: true,
+})
 
 export default function AsistenciaProfesor() {
   const navItems = navForRole('profesor')
@@ -21,193 +29,208 @@ export default function AsistenciaProfesor() {
   const [loadingBoard, setLoadingBoard] = useState(false)
   const [saving,       setSaving]       = useState(null)
   const [savedKey,     setSavedKey]     = useState(null)
-  const [showDatePicker, setShowDatePicker] = useState(false)
-  const [startDate,    setStartDate]    = useState('')
-  const [msg,          setMsg]          = useState(null)
 
   useEffect(() => {
     api.get('/sections')
-      .then(data => { setSections(data); if (data.length) setActiveId(data[0].id) })
+      .then(data => {
+        setSections(data)
+        if (data.length) setActiveId(data[0].id)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { if (activeId) loadBoard(activeId) }, [activeId])
+  useEffect(() => {
+    if (activeId) loadBoard(activeId)
+  }, [activeId])
 
   async function loadBoard(id) {
     setLoadingBoard(true)
-    try { setBoard(await api.get(`/attendance/sections/${id}/board`)) }
-    catch (e) { setMsg({ type:'error', text:e.message }) }
-    finally { setLoadingBoard(false) }
+    try {
+      setBoard(await api.get(`/attendance/sections/${id}/board`))
+    } catch (e) {
+      setBoard(null)
+      Swal.fire({
+        icon: 'error',
+        title: 'Error cargando asistencia',
+        text: e.message,
+        confirmButtonColor: '#1A5276',
+      })
+    } finally {
+      setLoadingBoard(false)
+    }
   }
 
   async function changeStatus(enrollmentId, sessionId, status) {
     const key = `${enrollmentId}-${sessionId}`
     setSaving(key)
+
     try {
       await api.patch('/attendance/record', { enrollmentId, sessionId, status })
+
       setBoard(prev => ({
         ...prev,
         students: prev.students.map(stu => {
           if (stu.enrollmentId !== enrollmentId) return stu
-          const sessions = stu.sessions.map(s => s.sessionId === sessionId ? { ...s, status, method:'manual' } : s)
+          const sessions = stu.sessions.map(s =>
+            s.sessionId === sessionId ? { ...s, status, method: 'manual' } : s
+          )
           const points = sessions.reduce((sum, s) => sum + (STATUS_CFG[s.status]?.points ?? 0), 0)
-          return { ...stu, sessions, totalPoints: Math.min(10, points) }
+          return { ...stu, sessions, totalPoints: Math.min(8, points) }
         }),
       }))
+
       setSavedKey(key)
       setTimeout(() => setSavedKey(null), 2000)
-    } catch (e) { setMsg({ type:'error', text:e.message }) }
-    finally { setSaving(null) }
-  }
-
-  async function handleSetDate() {
-    if (!startDate) return
-    try {
-      await api.post(`/attendance/sections/${activeId}/set-date`, { startDate })
-      setShowDatePicker(false)
-      setMsg({ type:'success', text:'4 sesiones generadas correctamente.' })
-      await loadBoard(activeId)
-    } catch (e) { setMsg({ type:'error', text:e.message }) }
+    } catch (e) {
+      Toast.fire({
+        icon: 'error',
+        title: e.message,
+      })
+    } finally {
+      setSaving(null)
+    }
   }
 
   return (
     <AppShell navItems={navItems}>
-      <h2 style={{ fontFamily:'var(--font-display)', fontSize:'1.8rem', marginBottom:6 }}>Asistencia</h2>
-      <p style={{ color:'var(--stone-400)', fontSize:14, marginBottom:28 }}>Gestiona las 4 sesiones del período</p>
+      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', marginBottom: 6 }}>
+        Asistencia
+      </h2>
 
-      {msg && (
-        <div style={{ padding:'10px 14px', borderRadius:'var(--radius-md)', fontSize:13.5, marginBottom:20,
-          background: msg.type==='success' ? 'var(--success-bg)' : 'var(--error-bg)',
-          color: msg.type==='success' ? 'var(--success)' : 'var(--error)',
-          border:`1px solid ${msg.type==='success' ? '#A9DFBF' : '#F1948A'}`,
-        }}>
-          {msg.text}
-          <button onClick={() => setMsg(null)} style={{ float:'right', background:'none', border:'none', cursor:'pointer', fontWeight:700, color:'inherit' }}>×</button>
-        </div>
-      )}
+      <p style={{ color: 'var(--stone-400)', fontSize: 14, marginBottom: 28 }}>
+        Gestiona la asistencia de las sesiones configuradas por Registro
+      </p>
 
-      {loading ? <PageSpinner /> : sections.length === 0 ? (
+      {loading ? (
+        <PageSpinner />
+      ) : sections.length === 0 ? (
         <EmptyState icon="📚" title="Sin secciones" desc="No tienes secciones asignadas." />
       ) : (
         <>
-          {/* Top controls */}
-          <Card style={{ marginBottom:20 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+          <Card style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
               {sections.length > 1 && (
-                <div>
+                <div style={{ minWidth: 280 }}>
                   <label style={labelStyle}>Sección</label>
-                  <select value={activeId} onChange={e => setActiveId(e.target.value)} style={selectStyle}>
+                  <select
+                    value={activeId}
+                    onChange={e => setActiveId(e.target.value)}
+                    style={selectStyle}
+                  >
                     {sections.map(s => (
-                      <option key={s.id} value={s.id}>{s.course.code}-0{s.sectionNo} — {s.course.name}</option>
+                      <option key={s.id} value={s.id}>
+                        {s.course.code}-0{s.sectionNo} — {s.course.name}
+                      </option>
                     ))}
                   </select>
                 </div>
               )}
-              <div style={{ marginLeft:'auto' }}>
-                <Button variant="secondary" size="sm" onClick={() => setShowDatePicker(v => !v)}>
-                  📅 Configurar fechas
-                </Button>
+
+              <div style={{ marginLeft: 'auto' }}>
+                <Badge color="blue">Configuración a cargo de Registro</Badge>
               </div>
             </div>
-
-            {showDatePicker && (
-              <div style={{ marginTop:16, paddingTop:16, borderTop:'1px solid var(--stone-200)', display:'flex', alignItems:'flex-end', gap:12, flexWrap:'wrap' }}>
-                <div>
-                  <label style={labelStyle}>Fecha de la 1ª clase</label>
-                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...selectStyle, width:'auto' }} />
-                </div>
-                <p style={{ fontSize:13, color:'var(--stone-400)', paddingBottom:8, margin:0 }}>
-                  Las sesiones 2, 3 y 4 serán los siguientes 3 martes (cada 7 días)
-                </p>
-                <Button variant="primary" size="sm" onClick={handleSetDate} disabled={!startDate}>
-                  Generar 4 sesiones
-                </Button>
-              </div>
-            )}
           </Card>
 
-          {/* Board */}
-          {loadingBoard ? <PageSpinner /> : board && (
+          {loadingBoard ? (
+            <PageSpinner />
+          ) : !board ? null : (board.sessions?.length ?? 0) === 0 ? (
             <Card>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20, flexWrap:'wrap', gap:12 }}>
+              <EmptyState
+                icon="📅"
+                title="Sección sin sesiones configuradas"
+                desc="Registro debe definir las fechas antes de que puedas gestionar la asistencia."
+              />
+            </Card>
+          ) : (
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
                 <div>
-                  <div style={{ fontFamily:'var(--font-display)', fontSize:'1.2rem', fontWeight:700 }}>{board.courseName}</div>
-                  <div style={{ fontSize:13, color:'var(--stone-400)', marginTop:3 }}>Prof. {board.professor} · {board.period} · {board.students.length} estudiantes</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 700 }}>
+                    {board.courseName}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--stone-400)', marginTop: 3 }}>
+                    Prof. {board.professor} · {board.period} · {board.students.length} estudiantes
+                  </div>
                 </div>
-                {/* Legend */}
-                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {Object.entries(STATUS_CFG).map(([k, cfg]) => (
-                    <span key={k} style={{ padding:'3px 10px', borderRadius:99, fontSize:11.5, fontWeight:600, background:cfg.bg, color:cfg.color }}>
+                    <span key={k} style={{ padding: '3px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 600, background: cfg.bg, color: cfg.color }}>
                       {cfg.label} +{cfg.points}pts
                     </span>
                   ))}
                 </div>
               </div>
 
-              <div style={{ overflowX:'auto' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13.5 }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
                   <thead>
-                    <tr style={{ background:'var(--stone-100)' }}>
+                    <tr style={{ background: 'var(--stone-100)' }}>
                       <th style={thStyle(false)}>Matrícula</th>
                       <th style={thStyle(true)}>Nombre</th>
                       {board.sessions.map(sess => (
                         <th key={sess.id} style={thStyle(false)}>
                           <div>Sesión {sess.sessionNo}</div>
-                          <div style={{ fontSize:11, fontWeight:400, color:'var(--stone-400)', marginTop:2 }}>
-                            {new Date(sess.date).toLocaleDateString('es-DO', { day:'2-digit', month:'short', year:'2-digit' })}
+                          <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--stone-400)', marginTop: 2 }}>
+                            {new Date(sess.date).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: '2-digit' })}
                           </div>
                         </th>
                       ))}
                       <th style={thStyle(false)}>Pts.</th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {board.students.map((stu, i) => (
-                      <tr key={stu.studentId} style={{ background: i%2===0 ? '#fff' : 'var(--stone-50)' }}>
+                      <tr key={stu.studentId} style={{ background: i % 2 === 0 ? '#fff' : 'var(--stone-50)' }}>
                         <td style={tdStyle(false)}>{stu.institutionalId}</td>
                         <td style={tdStyle(true)}>{stu.name}</td>
+
                         {stu.sessions.map(sess => {
                           const key = `${stu.enrollmentId}-${sess.sessionId}`
                           const cfg = STATUS_CFG[sess.status] ?? STATUS_CFG.absent
+
                           return (
-                            <td key={sess.sessionId} style={{ ...tdStyle(false), minWidth:130 }}>
-                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                            <td key={sess.sessionId} style={{ ...tdStyle(false), minWidth: 130 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <select
                                   value={sess.status}
                                   disabled={saving === key}
                                   onChange={e => changeStatus(stu.enrollmentId, sess.sessionId, e.target.value)}
                                   style={{
-                                    flex:1, padding:'5px 6px', borderRadius:6,
-                                    border:`1.5px solid ${cfg.color}`,
-                                    background:cfg.bg, color:cfg.color,
-                                    fontSize:12, fontWeight:600, cursor:'pointer', outline:'none',
-                                    opacity: saving===key ? .5 : 1,
-                                    transition:'all .2s',
+                                    flex: 1, padding: '5px 6px', borderRadius: 6,
+                                    border: `1.5px solid ${cfg.color}`,
+                                    background: cfg.bg, color: cfg.color,
+                                    fontSize: 12, fontWeight: 600, cursor: 'pointer', outline: 'none',
+                                    opacity: saving === key ? 0.5 : 1, transition: 'all .2s',
                                   }}
                                 >
                                   {Object.entries(STATUS_CFG).map(([val, c]) => (
                                     <option key={val} value={val}>{c.label} (+{c.points})</option>
                                   ))}
                                 </select>
+
                                 {saving === key && (
-                                  <div style={{ width:14, height:14, borderRadius:'50%', border:'2px solid var(--stone-200)', borderTopColor:'var(--green-700)', animation:'spinRing .7s linear infinite', flexShrink:0 }} />
+                                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid var(--stone-200)', borderTopColor: 'var(--green-700)', animation: 'spinRing .7s linear infinite', flexShrink: 0 }} />
                                 )}
                                 {savedKey === key && saving !== key && (
-                                  <span style={{ color:'var(--green-700)', fontSize:16, flexShrink:0 }}>✓</span>
+                                  <span style={{ color: 'var(--green-700)', fontSize: 16, flexShrink: 0 }}>✓</span>
                                 )}
                                 {sess.method === 'biometric' && saving !== key && savedKey !== key && (
-                                  <span title="Biométrico" style={{ fontSize:14 }}>🔒</span>
+                                  <span title="Biométrico" style={{ fontSize: 14 }}>🔒</span>
                                 )}
                               </div>
                             </td>
                           )
                         })}
-                        <td style={{ ...tdStyle(false), fontWeight:700, fontSize:15 }}>
-                          <span style={{ color: stu.totalPoints>=6 ? 'var(--green-700)' : stu.totalPoints>=4 ? 'var(--gold-500)' : 'var(--error)' }}>
+
+                        <td style={{ ...tdStyle(false), fontWeight: 700, fontSize: 15 }}>
+                          <span style={{ color: stu.totalPoints >= 6 ? 'var(--green-700)' : stu.totalPoints >= 4 ? 'var(--gold-500)' : 'var(--error)' }}>
                             {stu.totalPoints}
                           </span>
-                          <span style={{ fontSize:11, color:'var(--stone-400)' }}>/8</span>
+                          <span style={{ fontSize: 11, color: 'var(--stone-400)' }}>/8</span>
                         </td>
                       </tr>
                     ))}
@@ -215,8 +238,8 @@ export default function AsistenciaProfesor() {
                 </table>
               </div>
 
-              <div style={{ marginTop:14, padding:'10px 14px', background:'var(--stone-50)', borderRadius:'var(--radius-md)', fontSize:12.5, color:'var(--stone-500)', border:'1px solid var(--stone-200)' }}>
-                💡 Los cambios se guardan automáticamente al seleccionar — el ✓ verde confirma que se guardó. El 🔒 indica registro biométrico del estudiante.
+              <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--stone-50)', borderRadius: 'var(--radius-md)', fontSize: 12.5, color: 'var(--stone-500)', border: '1px solid var(--stone-200)' }}>
+                Los cambios se guardan automáticamente al seleccionar. El ✓ verde confirma que se guardó. El 🔒 indica registro biométrico del estudiante.
               </div>
             </Card>
           )}
@@ -226,7 +249,30 @@ export default function AsistenciaProfesor() {
   )
 }
 
-const labelStyle = { display:'block', fontSize:11.5, fontWeight:600, color:'var(--stone-500)', letterSpacing:'.05em', textTransform:'uppercase', marginBottom:5 }
-const selectStyle = { padding:'8px 12px', borderRadius:'var(--radius-md)', border:'1.5px solid var(--stone-200)', fontSize:13.5, outline:'none', background:'#fff', color:'var(--stone-900)' }
-const thStyle = left => ({ padding:'10px 12px', textAlign:left?'left':'center', fontWeight:600, color:'var(--stone-500)', fontSize:12, whiteSpace:'nowrap', borderBottom:'1px solid var(--stone-200)' })
-const tdStyle = left => ({ padding:'10px 12px', textAlign:left?'left':'center', borderBottom:'1px solid var(--stone-100)' })
+const labelStyle = {
+  display: 'block', fontSize: 11.5, fontWeight: 600,
+  color: 'var(--stone-500)', letterSpacing: '.05em',
+  textTransform: 'uppercase', marginBottom: 5,
+}
+
+const selectStyle = {
+  width: '100%', padding: '8px 12px',
+  borderRadius: 'var(--radius-md)',
+  border: '1.5px solid var(--stone-200)',
+  fontSize: 13.5, outline: 'none',
+  background: '#fff', color: 'var(--stone-900)',
+}
+
+const thStyle = left => ({
+  padding: '10px 12px',
+  textAlign: left ? 'left' : 'center',
+  fontWeight: 600, color: 'var(--stone-500)',
+  fontSize: 12, whiteSpace: 'nowrap',
+  borderBottom: '1px solid var(--stone-200)',
+})
+
+const tdStyle = left => ({
+  padding: '10px 12px',
+  textAlign: left ? 'left' : 'center',
+  borderBottom: '1px solid var(--stone-100)',
+})

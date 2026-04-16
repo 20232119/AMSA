@@ -28,7 +28,7 @@ app.use('/api/users',      userRoutes)
 app.use('/api/attendance', attendanceRoutes)
 app.use('/api/grades',     gradeRoutes)
 app.use('/api/export',     exportRoutes)
-app.use('/api/sections',   sectionRoutes)
+app.use('/api',            sectionRoutes)
 app.use('/api/reports',    reportRoutes)
 
 // ── Health check ──────────────────────────────────────────────────────────────

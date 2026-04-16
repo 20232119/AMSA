@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Swal from 'sweetalert2'
 import { useAuth } from '../context/AuthContext.jsx'
 import AppShell from '../components/AppShell.jsx'
 import { Card, Button, PageSpinner } from '../components/ui.jsx'
@@ -41,8 +42,7 @@ export default function SetupBiometrico() {
   const { user } = useAuth()
   const [creds, setCreds] = useState([])
   const [loading, setLoading] = useState(true)
-  const [regState, setReg] = useState('idle') // idle | loading | success | error
-  const [regMsg, setRegMsg] = useState('')
+  const [regState, setReg] = useState('idle')
 
   useEffect(() => {
     loadCreds()
@@ -61,7 +61,6 @@ export default function SetupBiometrico() {
 
   async function handleRegister() {
     setReg('loading')
-    setRegMsg('')
 
     try {
       const { startRegistration } = await import('@simplewebauthn/browser')
@@ -72,8 +71,6 @@ export default function SetupBiometrico() {
         throw new Error('El servidor no devolvió opciones válidas para registrar la biometría.')
       }
 
-      // Parche defensivo en frontend:
-      // si user.id llega como objeto/Uint8Array/array, convertirlo a base64url string
       if (optionsJSON.user?.id && typeof optionsJSON.user.id !== 'string') {
         optionsJSON.user.id = toBase64Url(optionsJSON.user.id)
       }
@@ -94,21 +91,64 @@ export default function SetupBiometrico() {
       })
 
       setReg('success')
-      setRegMsg('¡Credencial registrada exitosamente!')
       await loadCreds()
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'Biometría registrada',
+        text: 'La credencial se registró correctamente.',
+        confirmButtonText: 'Aceptar',
+        confirmButtonColor: '#1f7a5a',
+      })
     } catch (err) {
       setReg('error')
-      setRegMsg(err?.message ?? 'Error registrando credencial')
+
+      await Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: err?.message ?? 'Error registrando credencial',
+        confirmButtonText: 'Aceptar',
+        confirmButtonColor: '#c0392b',
+      })
+    } finally {
+      setReg('idle')
     }
   }
 
   async function handleDelete(id) {
+    const result = await Swal.fire({
+      icon: 'warning',
+      title: '¿Eliminar biometría?',
+      text: 'Esta acción eliminará la huella o credencial biométrica registrada.',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, eliminar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#c0392b',
+      cancelButtonColor: '#6c757d',
+      reverseButtons: true,
+    })
+
+    if (!result.isConfirmed) return
+
     try {
       await api.delete(`/auth/webauthn/credentials/${id}`)
       setCreds((prev) => prev.filter((c) => c.id !== id))
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'Eliminada',
+        text: 'La credencial biométrica fue eliminada correctamente.',
+        confirmButtonText: 'Aceptar',
+        confirmButtonColor: '#1f7a5a',
+      })
     } catch (err) {
-      setReg('error')
-      setRegMsg(err?.message ?? 'No se pudo eliminar la credencial.')
+      await Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: err?.message ?? 'No se pudo eliminar la credencial.',
+        confirmButtonText: 'Aceptar',
+        confirmButtonColor: '#c0392b',
+      })
     }
   }
 
@@ -132,22 +172,6 @@ export default function SetupBiometrico() {
         <p style={{ color: 'var(--stone-400)', fontSize: 14, marginBottom: 32 }}>
           Registra tu huella dactilar o Face ID para iniciar sesión sin contraseña.
         </p>
-
-        {regMsg && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-md)',
-              fontSize: 13.5,
-              marginBottom: 20,
-              background: regState === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
-              color: regState === 'success' ? 'var(--success)' : 'var(--error)',
-              border: `1px solid ${regState === 'success' ? '#A9DFBF' : '#F1948A'}`,
-            }}
-          >
-            {regMsg}
-          </div>
-        )}
 
         <Card style={{ marginBottom: 20 }}>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Agregar nuevo dispositivo</div>

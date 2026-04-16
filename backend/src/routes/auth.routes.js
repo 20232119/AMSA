@@ -23,7 +23,11 @@ const loginLimiter = rateLimit({
 // ── helpers ───────────────────────────────────────────────────────────────────
 function makeAccessToken(user) {
   return jwt.sign(
-    { sub: user.id, role: user.role?.name ?? user.role, institutionalId: user.institutionalId },
+    {
+      sub: user.id,
+      role: user.role?.name ?? user.role,
+      institutionalId: user.institutionalId,
+    },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRES ?? '15m' }
   )
@@ -58,12 +62,15 @@ async function getUserWithRole(id) {
 router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { identifier, password } = req.body
+
     if (!identifier || !password) {
       return res.status(400).json({ error: 'Campos requeridos' })
     }
 
     const user = await prisma.user.findFirst({
-      where: { OR: [{ email: identifier }, { institutionalId: identifier }] },
+      where: {
+        OR: [{ email: identifier }, { institutionalId: identifier }],
+      },
       include: { role: true },
     })
 
@@ -77,13 +84,18 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash)
+
     if (!ok) {
       const attempts = user.failedLoginAttempts + 1
       const lockedUntil = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null
 
       await prisma.user.update({
         where: { id: user.id },
-        data: { failedLoginAttempts: attempts, lockedUntil, lastLoginAt: new Date() },
+        data: {
+          failedLoginAttempts: attempts,
+          lockedUntil,
+          lastLoginAt: new Date(),
+        },
       })
 
       return res.status(401).json({ error: 'Credenciales inválidas' })
@@ -91,11 +103,19 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+      data: {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        lastLoginAt: new Date(),
+      },
     })
 
     await prisma.auditLog.create({
-      data: { userId: user.id, action: 'LOGIN_PASSWORD', ipAddress: req.ip },
+      data: {
+        userId: user.id,
+        action: 'LOGIN_PASSWORD',
+        ipAddress: req.ip,
+      },
     })
 
     const accessToken = makeAccessToken(user)
@@ -126,18 +146,25 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 router.post('/refresh', async (req, res, next) => {
   try {
     const { refreshToken } = req.body
+
     if (!refreshToken) {
       return res.status(400).json({ error: 'Token requerido' })
     }
 
     const hash = crypto.createHash('sha256').update(refreshToken).digest('hex')
-    const token = await prisma.refreshToken.findFirst({ where: { tokenHash: hash } })
+
+    const token = await prisma.refreshToken.findFirst({
+      where: { tokenHash: hash },
+    })
 
     if (!token || token.revoked || token.expiresAt < new Date()) {
       return res.status(401).json({ error: 'Refresh token inválido' })
     }
 
-    await prisma.refreshToken.update({ where: { id: token.id }, data: { revoked: true } })
+    await prisma.refreshToken.update({
+      where: { id: token.id },
+      data: { revoked: true },
+    })
 
     const user = await prisma.user.findUnique({
       where: { id: token.userId },
@@ -147,7 +174,10 @@ router.post('/refresh', async (req, res, next) => {
     const accessToken = makeAccessToken(user)
     const newRefresh = await makeRefreshToken(user.id, req)
 
-    res.json({ accessToken, refreshToken: newRefresh })
+    res.json({
+      accessToken,
+      refreshToken: newRefresh,
+    })
   } catch (e) {
     next(e)
   }
@@ -157,6 +187,7 @@ router.post('/refresh', async (req, res, next) => {
 router.post('/logout', async (req, res, next) => {
   try {
     const { refreshToken } = req.body
+
     if (refreshToken) {
       const hash = crypto.createHash('sha256').update(refreshToken).digest('hex')
       await prisma.refreshToken.updateMany({
@@ -164,6 +195,7 @@ router.post('/logout', async (req, res, next) => {
         data: { revoked: true },
       })
     }
+
     res.json({ ok: true })
   } catch (e) {
     next(e)
@@ -198,12 +230,38 @@ router.get('/me', requireAuth, async (req, res, next) => {
   }
 })
 
-// ── WebAuthn ──────────────────────────────────────────────────────────────────
+// ── WebAuthn helpers ──────────────────────────────────────────────────────────
 const challenges = new Map()
 
+function setChallenge(userId, challenge) {
+  challenges.set(userId, {
+    challenge,
+    expiresAt: Date.now() + 60_000,
+  })
+}
+
+function getChallenge(userId) {
+  const entry = challenges.get(userId)
+  if (!entry) return null
+
+  if (Date.now() > entry.expiresAt) {
+    challenges.delete(userId)
+    return null
+  }
+
+  return entry.challenge
+}
+
+function clearChallenge(userId) {
+  challenges.delete(userId)
+}
+
+// ── POST /api/auth/webauthn/register/options ─────────────────────────────────
 router.post('/webauthn/register/options', requireAuth, async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.sub } })
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.sub },
+    })
 
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado' })
@@ -221,29 +279,33 @@ router.post('/webauthn/register/options', requireAuth, async (req, res, next) =>
       userDisplayName: `${user.firstName} ${user.lastName}`,
       excludeCredentials: existing.map((c) => ({
         id: c.credentialId,
-        type: 'public-key',
       })),
       authenticatorSelection: {
-        residentKey: 'preferred',
+        authenticatorAttachment: 'platform',
+        residentKey: 'required',
         userVerification: 'required',
       },
     })
 
-    challenges.set(user.id, options.challenge)
+    setChallenge(user.id, options.challenge)
     res.json(options)
   } catch (e) {
     next(e)
   }
 })
 
+// ── POST /api/auth/webauthn/register/verify ──────────────────────────────────
 router.post('/webauthn/register/verify', requireAuth, async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.sub } })
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.sub },
+    })
+
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado' })
     }
 
-    const challenge = challenges.get(user.id)
+    const challenge = getChallenge(user.id)
     if (!challenge) {
       return res.status(400).json({ error: 'Challenge expirado' })
     }
@@ -253,10 +315,10 @@ router.post('/webauthn/register/verify', requireAuth, async (req, res, next) => 
       expectedChallenge: challenge,
       expectedOrigin: process.env.ORIGIN ?? 'http://localhost:5173',
       expectedRPID: process.env.RP_ID ?? 'localhost',
-      requireUserVerification: false,
+      requireUserVerification: true,
     })
 
-    if (!verification.verified) {
+    if (!verification.verified || !verification.registrationInfo) {
       return res.status(400).json({ error: 'Verificación fallida' })
     }
 
@@ -268,22 +330,41 @@ router.post('/webauthn/register/verify', requireAuth, async (req, res, next) => 
       credentialDeviceType,
     } = verification.registrationInfo
 
+    const credentialIDBase64Url = Buffer.from(credentialID).toString('base64url')
+    const transports = Array.isArray(req.body?.response?.transports)
+      ? req.body.response.transports
+      : []
+
+    console.log('REGISTER VERIFY DEBUG', {
+      userId: user.id,
+      credentialIDBase64Url,
+      deviceType: credentialDeviceType,
+      transports,
+      rpID: process.env.RP_ID ?? 'localhost',
+      origin: process.env.ORIGIN ?? 'http://localhost:5173',
+    })
+
     await prisma.webAuthnCredential.create({
       data: {
         userId: user.id,
-        credentialId: Buffer.from(credentialID).toString('base64url'),
+        credentialId: credentialIDBase64Url,
         publicKey: Buffer.from(credentialPublicKey),
         signCount: counter,
         aaguid,
         deviceType: credentialDeviceType,
+        transport: transports,
         friendlyName: req.body.friendlyName ?? 'Mi dispositivo',
       },
     })
 
-    challenges.delete(user.id)
+    clearChallenge(user.id)
 
     await prisma.auditLog.create({
-      data: { userId: user.id, action: 'WEBAUTHN_REGISTER' },
+      data: {
+        userId: user.id,
+        action: 'WEBAUTHN_REGISTER',
+        ipAddress: req.ip,
+      },
     })
 
     res.json({ verified: true })
@@ -292,29 +373,19 @@ router.post('/webauthn/register/verify', requireAuth, async (req, res, next) => 
   }
 })
 
+// ── POST /api/auth/webauthn/authenticate/options ─────────────────────────────
+// TEMP DEBUG: sin allowCredentials para comprobar si el problema es el credentialId
 router.post('/webauthn/authenticate/options', async (req, res, next) => {
   try {
-    const { identifier } = req.body ?? {}
+    const { identifier } = req.body
 
-    // Flujo discoverable: sin identifier
     if (!identifier) {
-      const options = await generateAuthenticationOptions({
-        rpID: process.env.RP_ID ?? 'localhost',
-        allowCredentials: [],
-        userVerification: 'preferred',
-      })
-
-      challenges.set('discoverable', options.challenge)
-      return res.json({ ...options, userId: null })
+      return res.status(400).json({ error: 'Identifier requerido' })
     }
 
-    // Flujo normal: con email o matrícula
     const user = await prisma.user.findFirst({
       where: {
-        OR: [
-          { email: identifier },
-          { institutionalId: identifier },
-        ],
+        OR: [{ email: identifier }, { institutionalId: identifier }],
       },
     })
 
@@ -326,40 +397,59 @@ router.post('/webauthn/authenticate/options', async (req, res, next) => {
       where: { userId: user.id, isActive: true },
     })
 
-    if (!creds.length) {
-      return res.status(404).json({
-        error: 'El usuario no tiene credenciales biométricas registradas.',
-      })
+    if (creds.length === 0) {
+      return res.status(404).json({ error: 'El usuario no tiene biometría registrada' })
     }
+
+    console.log('AUTH OPTIONS DEBUG', {
+      identifier,
+      userId: user.id,
+      credsFound: creds.length,
+      credentialIds: creds.map((c) => c.credentialId),
+      rpID: process.env.RP_ID ?? 'localhost',
+      origin: process.env.ORIGIN ?? 'http://localhost:5173',
+      mode: 'WITHOUT_ALLOW_CREDENTIALS',
+    })
 
     const options = await generateAuthenticationOptions({
       rpID: process.env.RP_ID ?? 'localhost',
-      allowCredentials: creds.map((c) => ({
-        id: c.credentialId,
-        type: 'public-key',
-        transports: ['internal'],
-      })),
-      userVerification: 'preferred',
+      userVerification: 'required',
+      // allowCredentials: se omite a propósito para depuración
     })
 
-    challenges.set(user.id, options.challenge)
-    return res.json({ ...options, userId: user.id })
+    setChallenge(user.id, options.challenge)
+
+    res.json({
+      ...options,
+      userId: user.id,
+    })
   } catch (e) {
     next(e)
   }
 })
 
+// ── POST /api/auth/webauthn/authenticate/verify ──────────────────────────────
 router.post('/webauthn/authenticate/verify', async (req, res, next) => {
   try {
     const { userId, _attendanceOnly, ...body } = req.body
     const credId = body.id
 
     if (!credId) {
-      return res.status(400).json({ error: 'Credencial no enviada' })
+      return res.status(400).json({ error: 'Credencial no recibida' })
     }
 
     const cred = await prisma.webAuthnCredential.findFirst({
-      where: { credentialId: credId, isActive: true },
+      where: {
+        credentialId: credId,
+        isActive: true,
+      },
+    })
+
+    console.log('AUTH VERIFY DEBUG', {
+      receivedCredId: credId,
+      foundInDb: !!cred,
+      userIdFromRequest: userId,
+      attendanceOnly: !!_attendanceOnly,
     })
 
     if (!cred) {
@@ -374,11 +464,10 @@ router.post('/webauthn/authenticate/verify', async (req, res, next) => {
     })
 
     if (!user) {
-      return res.status(400).json({ error: 'Usuario no encontrado' })
+      return res.status(404).json({ error: 'Usuario no encontrado' })
     }
 
-    const challenge =
-      challenges.get(resolvedUserId) ?? challenges.get('discoverable')
+    const challenge = getChallenge(resolvedUserId)
 
     if (!challenge) {
       return res.status(400).json({ error: 'Challenge inválido o expirado' })
@@ -394,10 +483,10 @@ router.post('/webauthn/authenticate/verify', async (req, res, next) => {
         credentialPublicKey: cred.publicKey,
         counter: cred.signCount,
       },
-      requireUserVerification: false,
+      requireUserVerification: true,
     })
 
-    if (!verification.verified) {
+    if (!verification.verified || !verification.authenticationInfo) {
       return res.status(400).json({ error: 'Verificación fallida' })
     }
 
@@ -426,8 +515,7 @@ router.post('/webauthn/authenticate/verify', async (req, res, next) => {
       },
     })
 
-    challenges.delete(resolvedUserId)
-    challenges.delete('discoverable')
+    clearChallenge(resolvedUserId)
 
     if (_attendanceOnly) {
       return res.json({ verified: true, userId: user.id })
@@ -457,6 +545,7 @@ router.post('/webauthn/authenticate/verify', async (req, res, next) => {
   }
 })
 
+// ── GET /api/auth/webauthn/credentials ────────────────────────────────────────
 router.get('/webauthn/credentials', requireAuth, async (req, res, next) => {
   try {
     const creds = await prisma.webAuthnCredential.findMany({
@@ -467,6 +556,8 @@ router.get('/webauthn/credentials', requireAuth, async (req, res, next) => {
         deviceType: true,
         lastUsedAt: true,
         createdAt: true,
+        transport: true,
+        credentialId: true,
       },
     })
 
@@ -476,10 +567,14 @@ router.get('/webauthn/credentials', requireAuth, async (req, res, next) => {
   }
 })
 
+// ── DELETE /api/auth/webauthn/credentials/:id ────────────────────────────────
 router.delete('/webauthn/credentials/:id', requireAuth, async (req, res, next) => {
   try {
     const cred = await prisma.webAuthnCredential.findFirst({
-      where: { id: req.params.id, userId: req.user.sub },
+      where: {
+        id: req.params.id,
+        userId: req.user.sub,
+      },
     })
 
     if (!cred) {

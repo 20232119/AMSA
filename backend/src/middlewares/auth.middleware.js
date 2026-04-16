@@ -2,24 +2,43 @@
 import jwt from 'jsonwebtoken'
 
 export function requireAuth(req, res, next) {
-  const header = req.headers.authorization
-  if (!header?.startsWith('Bearer ')) {
-    const err = new Error('Token requerido'); err.status = 401; return next(err)
-  }
   try {
-    req.user = jwt.verify(header.slice(7), process.env.JWT_ACCESS_SECRET)
+    const header = req.headers.authorization
+
+    if (!header || !header.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token requerido' })
+    }
+
+    const token = header.slice(7)
+
+    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET)
+
+    // Normalizar estructura del usuario
+    req.user = {
+      ...decoded,
+      role: decoded.role?.name ?? decoded.role,
+    }
+
     next()
-  } catch {
-    const err = new Error('Token inválido o expirado'); err.status = 401; throw err
+  } catch (err) {
+    return res.status(401).json({
+      error: 'Token inválido o expirado',
+    })
   }
 }
 
 export function requireRole(...roles) {
   return (req, res, next) => {
-    const flat = roles.flat()
-    if (!flat.includes(req.user?.role)) {
-      const err = new Error('Sin permisos'); err.status = 403; return next(err)
+    const allowedRoles = roles.flat()
+
+    const userRole = req.user?.role
+
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      return res.status(403).json({
+        error: 'Sin permisos',
+      })
     }
+
     next()
   }
 }

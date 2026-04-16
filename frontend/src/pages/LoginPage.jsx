@@ -1,10 +1,12 @@
-import { useState } from 'react'
+// src/pages/LoginPage.jsx
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import { loginBiometric, warmCache, clearCache, hasValidAuthOptions } from '../lib/webauthn.js'
 import { Button } from '../components/ui.jsx'
 
 export default function LoginPage() {
-  const { login, loginBiometric } = useAuth()
+  const { login, loginWithTokens } = useAuth()
   const navigate = useNavigate()
 
   const [identifier, setIdentifier] = useState('')
@@ -12,6 +14,10 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [bioLoading, setBioLoading] = useState(false)
+  const [cacheReady, setCacheReady] = useState(false)
+
+  const warmRef = useRef(null)
+  const debounce = useRef(null)
 
   function redirect(user) {
     const role = user.role?.name ?? user.role
@@ -20,32 +26,103 @@ export default function LoginPage() {
     else navigate('/registro')
   }
 
+  async function doWarm(id, { force = false } = {}) {
+    const cleanId = (id ?? '').trim()
+
+    clearTimeout(warmRef.current)
+
+    if (!cleanId || cleanId.length < 6) {
+      setCacheReady(false)
+      clearCache()
+      return
+    }
+
+    if (!force && hasValidAuthOptions(cleanId)) {
+      setCacheReady(true)
+      warmRef.current = setTimeout(() => {
+        doWarm(cleanId, { force: true }).catch(() => {})
+      }, 45_000)
+      return
+    }
+
+    setCacheReady(false)
+
+    try {
+      await warmCache(cleanId, { force })
+      setCacheReady(true)
+
+      // refresca antes de que venza el challenge
+      warmRef.current = setTimeout(() => {
+        doWarm(cleanId, { force: true }).catch(() => {})
+      }, 45_000)
+    } catch {
+      setCacheReady(false)
+    }
+  }
+
+  useEffect(() => {
+    // por si el navegador autocompleta
+    doWarm(identifier).catch(() => {})
+    return () => {
+      clearTimeout(warmRef.current)
+      clearTimeout(debounce.current)
+    }
+  }, [])
+
+  function handleIdentifierChange(val) {
+    setIdentifier(val)
+    setError('')
+
+    clearTimeout(debounce.current)
+    clearTimeout(warmRef.current)
+    clearCache()
+    setCacheReady(false)
+
+    debounce.current = setTimeout(() => {
+      doWarm(val).catch(() => {})
+    }, 500)
+  }
+
   async function handleLogin(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
+
     try {
       const user = await login(identifier, password)
       redirect(user)
     } catch (err) {
-      setError(err.message)
+      setError(err.message ?? 'Error al iniciar sesión.')
     } finally {
       setLoading(false)
     }
   }
 
   async function handleBiometric() {
-    if (!identifier) {
+    const id = identifier.trim()
+
+    if (!id) {
       setError('Ingresa tu matrícula primero')
       return
     }
+
     setError('')
     setBioLoading(true)
+
     try {
-      const user = await loginBiometric(identifier)
-      redirect(user)
+      const data = await loginBiometric(id)
+      loginWithTokens(data)
+      redirect(data.user)
     } catch (err) {
-      setError(err.message ?? 'Error en autenticación biométrica')
+      const msg = err?.message ?? 'No se pudo autenticar con biometría.'
+
+      if (msg.includes('Biometría no preparada')) {
+        doWarm(id, { force: true }).catch(() => {})
+        setError('Preparando biometría. Pulsa nuevamente en un momento.')
+      } else {
+        setError(msg)
+        doWarm(id, { force: true }).catch(() => {})
+      }
     } finally {
       setBioLoading(false)
     }
@@ -67,28 +144,29 @@ export default function LoginPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 48 }}>
             <div
               style={{
-                width: 52,
-                height: 52,
-                borderRadius: 14,
-                background: '#fff',
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: 'var(--green-700)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                overflow: 'hidden',
-                padding: 6,
               }}
             >
-              <img
-                src="/images/logo.png"
-                alt="Logo AMSA"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                }}
-              />
+              <svg
+                width={24}
+                height={24}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2a10 10 0 1 0 10 10" />
+                <path d="M12 6v6l4 2" />
+              </svg>
             </div>
-
             <div>
               <div
                 style={{
@@ -193,22 +271,11 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <label
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: 'var(--stone-500)',
-                  letterSpacing: '.05em',
-                  textTransform: 'uppercase',
-                  display: 'block',
-                  marginBottom: 6,
-                }}
-              >
-                Matrícula / Correo
-              </label>
+              <label style={labelStyle}>Matrícula / Correo</label>
               <input
                 value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
+                onChange={(e) => handleIdentifierChange(e.target.value)}
+                onBlur={() => doWarm(identifier).catch(() => {})}
                 placeholder="2025-0001"
                 style={inputStyle}
                 required
@@ -217,19 +284,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: 'var(--stone-500)',
-                  letterSpacing: '.05em',
-                  textTransform: 'uppercase',
-                  display: 'block',
-                  marginBottom: 6,
-                }}
-              >
-                Contraseña
-              </label>
+              <label style={labelStyle}>Contraseña</label>
               <input
                 type="password"
                 value={password}
@@ -240,8 +295,14 @@ export default function LoginPage() {
               />
             </div>
 
-            <Button type="submit" variant="primary" size="lg" disabled={loading} style={{ width: '100%', marginTop: 4 }}>
-              {loading ? <><Spin />Ingresando…</> : 'Iniciar sesión'}
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              disabled={loading}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              {loading ? 'Ingresando…' : 'Iniciar sesión'}
             </Button>
           </form>
 
@@ -252,13 +313,15 @@ export default function LoginPage() {
           </div>
 
           <button
+            onMouseEnter={() => doWarm(identifier).catch(() => {})}
+            onFocus={() => doWarm(identifier).catch(() => {})}
             onClick={handleBiometric}
             disabled={bioLoading}
             style={{
               width: '100%',
               padding: '11px',
               borderRadius: 'var(--radius-md)',
-              border: '1.5px solid var(--stone-200)',
+              border: `1.5px solid ${cacheReady ? 'var(--green-700)' : 'var(--stone-200)'}`,
               background: '#fff',
               display: 'flex',
               alignItems: 'center',
@@ -266,16 +329,41 @@ export default function LoginPage() {
               gap: 10,
               fontSize: 14,
               fontWeight: 600,
-              color: 'var(--stone-700)',
-              cursor: 'pointer',
+              color: cacheReady ? 'var(--green-700)' : 'var(--stone-400)',
+              cursor: bioLoading ? 'not-allowed' : 'pointer',
               opacity: bioLoading ? 0.6 : 1,
+              transition: 'all .3s',
             }}
           >
-            {bioLoading ? <Spin dark /> : <FingerprintSvg />}
-            {bioLoading ? 'Autenticando…' : 'Usar huella / Face ID'}
+            <FingerprintSvg />
+            {bioLoading
+              ? 'Autenticando…'
+              : cacheReady
+                ? 'Usar huella / Face ID ✓'
+                : 'Usar huella / Face ID'}
           </button>
 
-          <p style={{ marginTop: 24, fontSize: 12, color: 'var(--stone-400)', textAlign: 'center' }}>
+          {!cacheReady && identifier.trim().length >= 6 && (
+            <p
+              style={{
+                textAlign: 'center',
+                fontSize: 11.5,
+                color: 'var(--stone-400)',
+                marginTop: 8,
+              }}
+            >
+              Preparando opciones biométricas…
+            </p>
+          )}
+
+          <p
+            style={{
+              marginTop: 24,
+              fontSize: 12,
+              color: 'var(--stone-400)',
+              textAlign: 'center',
+            }}
+          >
             Usuarios de prueba: <code style={{ fontSize: 11 }}>2025-0001</code> ·{' '}
             <code style={{ fontSize: 11 }}>EMP-0042</code> ·{' '}
             <code style={{ fontSize: 11 }}>REG-0005</code>
@@ -288,6 +376,16 @@ export default function LoginPage() {
   )
 }
 
+const labelStyle = {
+  fontSize: 12.5,
+  fontWeight: 600,
+  color: 'var(--stone-500)',
+  letterSpacing: '.05em',
+  textTransform: 'uppercase',
+  display: 'block',
+  marginBottom: 6,
+}
+
 const inputStyle = {
   width: '100%',
   padding: '10px 14px',
@@ -297,22 +395,7 @@ const inputStyle = {
   outline: 'none',
   background: '#fff',
   color: 'var(--stone-900)',
-  transition: 'border-color .15s',
-}
-
-function Spin({ dark = false }) {
-  return (
-    <div
-      style={{
-        width: 16,
-        height: 16,
-        borderRadius: '50%',
-        border: dark ? '2.5px solid rgba(0,0,0,.15)' : '2.5px solid rgba(255,255,255,.3)',
-        borderTopColor: dark ? '#374151' : '#fff',
-        animation: 'spinRing .8s linear infinite',
-      }}
-    />
-  )
+  boxSizing: 'border-box',
 }
 
 function FingerprintSvg() {
