@@ -41,4 +41,20 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: err.message ?? 'Error interno del servidor' })
 })
 
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowed = [
+      process.env.ORIGIN,
+      'https://amsa-ten.vercel.app',
+      'https://amsa-git-main-20232119s-projects.vercel.app',
+    ]
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
+  credentials: true,
+}))
+
 app.listen(PORT, () => console.log(`🚀 API escuchando en http://localhost:${PORT}`))
