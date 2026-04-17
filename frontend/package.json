@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "postinstall": "chmod +x node_modules/.bin/vite"
+    "postinstall": "node -e \"const fs=require('fs');try{fs.chmodSync('node_modules/.bin/vite','755')}catch(e){}\""
   },
   "dependencies": {
     "@simplewebauthn/browser": "^13.3.0",
